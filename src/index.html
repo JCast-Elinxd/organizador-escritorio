@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Organizador</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="app-grid" id="app-grid">
+
+    <!-- Este mismo archivo se carga en TODAS las ventanas (cada panel es
+         una ventana real de sistema operativo, ver main.js); cuál pieza
+         se ve en cada una la decide ?panel=... en la URL con la que se
+         cargó (ver body[data-panel] en style.css y renderer.js). El
+         tamaño/posición de cada ventana lo calcula y aplica main.js con
+         setBounds, ya no hay porcentajes calculados acá. -->
+    <!-- Extensión del cronograma: aparece como ventana aparte cuando la
+         zona deja espacio a la izquierda, y muestra tareas de verdad (las
+         que no caben en el panel principal), no solo fondo. -->
+    <div class="panel" id="panel-schedule-left">
+      <div class="schedule-list" id="schedule-list-left"></div>
+    </div>
+
+    <div class="panel" id="panel-schedule">
+      <button class="add-task-btn" id="btn-add-task">+ Nueva tarea</button>
+      <div class="schedule-list" id="schedule-list"></div>
+    </div>
+
+    <div class="panel" id="panel-timer">
+      <div class="timer-main">
+        <div class="timer-top-row">
+          <div class="countdown-box">
+            <div class="countdown" id="countdown">--:--</div>
+          </div>
+          <div class="clock-box">
+            <div class="clock" id="clock">--:--</div>
+          </div>
+        </div>
+        <div class="next-activity-label" id="next-activity">
+          <span class="next-name" id="next-name">Sin tareas próximas</span>
+          <span class="next-time" id="next-time"></span>
+        </div>
+        <div class="pending-list" id="pending-list"></div>
+      </div>
+
+      <!-- Pomodoro configurable por perfiles y segmentos. -->
+      <div class="pomodoro-mini">
+        <div class="custom-dropdown" id="pomo-profile-dropdown" title="Modo de Pomodoro">
+          <button type="button" class="dropdown-toggle" id="pomo-profile-toggle">Trabajo ▾</button>
+          <div class="dropdown-menu" id="pomo-profile-menu"></div>
+        </div>
+        <div class="pomo-current">
+          <div class="pomo-mode" id="pomo-mode">TRABAJO</div>
+          <div class="pomo-time" id="pomo-time">25:00</div>
+        </div>
+        <div class="pomo-cycle-preview" id="pomo-cycle-preview" title="Próximos segmentos del ciclo"></div>
+        <div class="pomo-controls">
+          <button id="pomo-toggle" title="Iniciar / pausar">▶</button>
+          <button id="pomo-reset" title="Reiniciar">↺</button>
+          <button id="pomo-skip" title="Saltar a la siguiente fase">⏭</button>
+        </div>
+        <button class="pomo-config" id="pomo-config" title="Configurar modo y segmentos">⚙</button>
+        <button class="pomo-stretchly" id="pomo-stretchly" title="Conectar Stretchly">🔗 Stretchly</button>
+      </div>
+    </div>
+
+    <!-- Mini-panel de controles: pegado justo arriba del calendario
+         (mismo ancho). Comparte UNA sola ventana real con #panel-calendar
+         (ver body[data-panel="calendar"] en style.css) porque siempre van
+         pegados y nunca hace falta que se superpongan entre sí. -->
+    <div class="panel toolbar-panel" id="panel-toolbar">
+      <button id="btn-zone-edit" title="Mover / redimensionar el espacio libre">🎬</button>
+      <button id="btn-panel-map" title="Mostrar/ocultar paneles (mapa)">🗺</button>
+      <button id="btn-translucent" title="Alternar paneles translúcidos">🌫</button>
+      <button id="btn-ontop" title="Alternar 'siempre encima' (desactívalo si el video se ve borroso)">📌</button>
+      <button id="btn-display" title="Cambiar de monitor">🖥</button>
+      <button id="btn-calendar-connect" title="Conectar Google Calendar / Microsoft Calendar">🔗</button>
+    </div>
+
+    <div class="panel" id="panel-calendar">
+      <div class="cal-body" id="cal-body">
+        <div class="cal-left">
+          <div class="cal-header">
+            <button id="cal-prev">‹</button>
+            <div class="month-label" id="cal-month-label"></div>
+            <button id="cal-next">›</button>
+          </div>
+          <div class="cal-grid-wrap">
+            <div class="cal-grid" id="cal-grid"></div>
+          </div>
+          <div class="cal-legend" id="cal-legend">
+            <span id="legend-sync" class="legend-sync"><i class="dot sincronizado"></i>Sincronizado</span>
+          </div>
+        </div>
+        <!-- A la derecha, aprovechando el espacio sobrante. Solo eventos
+             de calendario, nunca tareas de otros paneles. Se oculta sola
+             si el panel queda demasiado angosto para tener espacio real. -->
+        <div class="cal-agenda" id="cal-agenda"></div>
+      </div>
+    </div>
+
+    <!-- Drawer de calendarios: pegado al borde DERECHO de la pantalla,
+         no un modal centrado (antes era una ventana flotante aparte,
+         pero tenía varios bugs de interacción — ahora vuelve a vivir en
+         la misma ventana, forzando el clic-a-través apagado mientras
+         está abierto para no repetir el problema con la zona de video). -->
+    <div class="calendar-drawer" id="calendar-drawer">
+      <div class="drawer-header">
+        <h3>Calendarios</h3>
+        <button id="calendar-drawer-close">✕</button>
+      </div>
+      <div class="drawer-body">
+
+        <div class="provider-block">
+          <div class="provider-row">
+            <span class="provider-name">📅 Google Calendar</span>
+            <button class="btn-save" id="google-connect-btn">+ Agregar cuenta</button>
+          </div>
+          <div class="provider-accounts" id="google-accounts"></div>
+          <div class="provider-fields" id="google-fields" style="display:none;">
+            <div class="link-row">
+              <button class="btn-link" id="google-open-consent" type="button">🔗 Abrir pantalla de consentimiento OAuth</button>
+              <button class="btn-link" id="google-open-creds" type="button">🔗 Abrir "Crear credenciales"</button>
+              <button class="btn-link" id="google-open-api" type="button">🔗 Abrir "Habilitar Google Calendar API"</button>
+            </div>
+            <input type="text" id="google-account-label" placeholder="Nombre para esta cuenta (ej. Personal, Trabajo)" />
+            <input type="text" id="google-client-id" placeholder="Client ID (Google Cloud Console)" />
+            <input type="text" id="google-client-secret" placeholder="Client Secret" />
+            <button class="btn-save" id="google-fields-submit">Iniciar sesión con Google</button>
+            <p class="field-hint">Se abrirá tu navegador para iniciar sesión. Si ya conectaste una cuenta de Google antes, puedes dejar Client ID/Secret vacíos: se reutilizan automáticamente. Esta app pide permiso de LECTURA Y ESCRITURA de eventos — si conectaste una cuenta antes de este cambio, reconéctala para poder crear eventos con ella. Ver el README para el paso a paso completo.</p>
+          </div>
+        </div>
+
+        <div class="provider-block">
+          <div class="provider-row">
+            <span class="provider-name">📆 Microsoft Calendar</span>
+            <button class="btn-save" id="microsoft-connect-btn">+ Agregar cuenta</button>
+          </div>
+          <div class="provider-accounts" id="microsoft-accounts"></div>
+          <div class="provider-fields" id="microsoft-fields" style="display:none;">
+            <div class="link-row">
+              <button class="btn-link" id="microsoft-open-creds" type="button">🔗 Abrir "App registrations" en Azure</button>
+            </div>
+            <input type="text" id="microsoft-account-label" placeholder="Nombre para esta cuenta (ej. Personal, Trabajo)" />
+            <input type="text" id="microsoft-client-id" placeholder="Application (client) ID (Azure)" />
+            <button class="btn-save" id="microsoft-fields-submit">Iniciar sesión con Microsoft</button>
+            <p class="field-hint">Se abrirá tu navegador para iniciar sesión. Dentro de esa página, botón "New registration". Si ya conectaste una cuenta de Microsoft antes, puedes dejar el Client ID vacío: se reutiliza automáticamente. Ver el README para el paso a paso completo.</p>
+          </div>
+        </div>
+
+        <div id="calendar-connect-error" class="field-error"></div>
+        <div id="calendar-sync-errors" class="field-error"></div>
+
+        <!-- Convenciones (categorías) personalizables: ya no son fijas. -->
+        <div class="provider-block">
+          <div class="provider-row">
+            <span class="provider-name">🏷️ Convenciones</span>
+            <button class="btn-save" id="category-add-btn">+ Nueva</button>
+          </div>
+          <div class="category-list" id="category-list"></div>
+          <div id="category-error" class="field-error"></div>
+          <p class="field-hint">Estas convenciones son universales: se usan tanto para tareas como para eventos de calendario. "Urgente" y "Recurrente" son del sistema (🔒 no se pueden borrar ni modificar). Marca 📊 en las que quieras ver como su propia columna en el cronograma; las que no marques se agrupan juntas en una columna "OTROS" (cada tarjeta conserva su propio color). Los eventos sincronizados usan el color propio de Google cuando lo tienen; si no, usan el punto morado "Sincronizado".</p>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <div class="modal-overlay" id="pomo-modal">
+    <div class="modal pomo-modal">
+      <h3>Configurar Pomodoro</h3>
+      <label class="field-label">Modo</label>
+      <div class="custom-dropdown" id="pomo-config-mode-dropdown">
+        <button type="button" class="dropdown-toggle" id="pomo-config-mode-toggle">Trabajo ▾</button>
+        <div class="dropdown-menu" id="pomo-config-mode-menu"></div>
+      </div>
+      <label class="field-label">Nombre del modo</label>
+      <input id="pomo-mode-name" type="text" maxlength="30" />
+      <div id="pomo-segments" class="pomo-segments"></div>
+      <button class="btn-cancel pomo-add-segment" id="pomo-add-segment">+ Añadir segmento</button>
+      <div class="actions">
+        <button class="btn-cancel" id="pomo-config-cancel">Cancelar</button>
+        <button class="btn-save" id="pomo-config-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: nueva/editar tarea. Los campos de recurrencia solo se ven
+       cuando el tipo es "Recurrente" — es el "menú distinto" para ese
+       tipo de tarea, sin duplicar todo el diálogo. -->
+  <div class="modal-overlay" id="task-modal">
+    <div class="modal">
+      <h3 id="task-modal-title">Nueva tarea</h3>
+      <input type="text" id="task-title" placeholder="Título" />
+
+      <label class="field-label">Tipo</label>
+      <select id="task-type"></select>
+
+      <!-- Cuánto dura la tarea: además de usarse para el evento de Google
+           Calendar, es lo que va a durar el bloqueo automático de
+           Stretchly cuando llegue la hora (ver main.js). -->
+      <div id="task-duration-field">
+        <label class="field-label">Duración (minutos)</label>
+        <input type="number" id="task-duration" min="1" max="480" value="25" />
+        <p class="field-hint">A esta hora, se inicia un descanso de Stretchly de esta duración automáticamente.</p>
+      </div>
+
+      <!-- Tarea puntual: fecha y hora exactas -->
+      <div id="task-oneoff-fields">
+        <label class="field-label">Día y hora</label>
+        <input type="datetime-local" id="task-datetime" />
+      </div>
+
+      <!-- Tarea recurrente: regla de repetición, no una fecha fija -->
+      <div id="task-recurrence-fields" class="recurrence-box" style="display:none;">
+        <label class="field-label">Se repite</label>
+        <select id="task-recur-freq">
+          <option value="daily">Todos los días</option>
+          <option value="weekly">Ciertos días de la semana</option>
+        </select>
+        <div id="task-recur-days" class="weekday-picker" style="display:none;">
+          <label><input type="checkbox" value="1" />L</label>
+          <label><input type="checkbox" value="2" />M</label>
+          <label><input type="checkbox" value="3" />X</label>
+          <label><input type="checkbox" value="4" />J</label>
+          <label><input type="checkbox" value="5" />V</label>
+          <label><input type="checkbox" value="6" />S</label>
+          <label><input type="checkbox" value="0" />D</label>
+        </div>
+        <label class="field-label">Hora</label>
+        <input type="time" id="task-recur-time" value="09:00" />
+      </div>
+
+      <select id="task-google-target">
+        <option value="">No crear recordatorio en Google Tasks</option>
+      </select>
+      <p class="field-hint">Un recordatorio en Google Tasks aparece también en tu móvil (app de Google Tasks / Google Calendar).</p>
+
+      <!-- Solo para tareas urgentes: además del recordatorio, se puede
+           crear un evento CON HORA en Google Calendar (igual que ya
+           existe para eventos del calendario). -->
+      <div id="task-google-calendar-field" style="display:none;">
+        <select id="task-google-calendar-target">
+          <option value="">No agregar a Google Calendar</option>
+        </select>
+        <p class="field-hint">Se crea como un evento con hora exacta (1h de duración) en Google Calendar, visible también en tu móvil.</p>
+      </div>
+
+      <div id="task-save-error" class="field-error"></div>
+
+      <div class="actions">
+        <button class="btn-cancel" id="task-delete" style="display:none;">Eliminar</button>
+        <button class="btn-cancel" id="task-cancel">Cancelar</button>
+        <button class="btn-save" id="task-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: nuevo evento de calendario -->
+  <div class="modal-overlay" id="event-modal">
+    <div class="modal">
+      <h3 id="event-modal-title">Nuevo evento</h3>
+
+      <!-- Lo que ya hay ese día (eventos y tareas), con opción de borrar -->
+      <div id="event-day-items" class="day-items"></div>
+
+      <input type="text" id="event-title" placeholder="Título" />
+      <select id="event-type"></select>
+      <input type="date" id="event-date" />
+      <select id="event-google-target">
+        <option value="">No guardar en Google (solo local)</option>
+      </select>
+      <div id="event-save-error" class="field-error"></div>
+      <div class="actions">
+        <button class="btn-cancel" id="event-cancel">Cancelar</button>
+        <button class="btn-save" id="event-save">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

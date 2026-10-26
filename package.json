@@ -1,0 +1,31 @@
+{
+  "name": "organizador-escritorio",
+  "version": "0.1.0",
+  "description": "Organizador para pantalla secundaria: cronograma, temporizador, calendario y video flotante.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.tuusuario.organizador",
+    "productName": "Organizador",
+    "win": {
+      "target": "nsis",
+      "icon": "app_icon.ico"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "calendar-sync.js",
+      "src/**/*",
+      "data/**/*"
+    ]
+  }
+}

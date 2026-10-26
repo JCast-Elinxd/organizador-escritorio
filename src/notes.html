@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Nota rápida</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; }
+  body {
+    background: rgba(24,24,28,0.92);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    border: none;
+    background: transparent;
+    color: #EDEDEF;
+    padding: 10px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+  }
+  .hint {
+    font-size: 10px;
+    color: #9A9AA4;
+    padding: 4px 10px;
+  }
+</style>
+</head>
+<body>
+  <textarea id="note" placeholder="Escribe y presiona Escape para guardar y cerrar..." autofocus></textarea>
+  <div class="hint">Esc para cerrar · se guarda automáticamente</div>
+  <script>
+    const ta = document.getElementById('note');
+    const KEY = 'organizador_quicknote';
+    ta.value = localStorage.getItem(KEY) || '';
+    ta.addEventListener('input', () => localStorage.setItem(KEY, ta.value));
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') window.close ? window.blur() : null;
+    });
+  </script>
+</body>
+</html>

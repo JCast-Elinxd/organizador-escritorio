@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>Mapa</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    background: rgba(20,20,24,0.94);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px;
+    font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  /* Barra de arrastre SEPARADA del contenido clicable: arrastrar todo el
+     body a la vez puede hacer que Chromium confunda un clic corto con el
+     inicio de un arrastre y se pierda el clic en la celda. Con una barra
+     angosta y aparte, no hay ambigüedad: lo de arriba siempre arrastra,
+     lo de abajo siempre hace clic. */
+  .drag-bar {
+    -webkit-app-region: drag;
+    height: 18px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; color: #9A9AA4; letter-spacing: 0.05em;
+    cursor: move;
+    user-select: none;
+  }
+  .grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    grid-template-rows: 1fr 1fr;
+    grid-template-areas: "left schedule" "timer calendar";
+    gap: 5px;
+    padding: 0 10px 10px 10px;
+  }
+  .cell {
+    border-radius: 6px;
+    background: #5B8DEF;
+    color: #EDEDEF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0.9;
+    user-select: none;
+    transition: background 0.15s, opacity 0.15s;
+  }
+  .cell:hover { opacity: 1; box-shadow: 0 0 0 2px rgba(255,255,255,0.3) inset; }
+  .cell.hidden { background: #4A4A52; color: #9A9AA4; opacity: 0.45; }
+  #cell-left { grid-area: left; }
+  #cell-schedule { grid-area: schedule; }
+  #cell-timer { grid-area: timer; }
+  #cell-calendar { grid-area: calendar; }
+</style>
+</head>
+<body>
+  <div class="drag-bar">⠿ arrastrar · clic en un panel para ocultarlo/mostrarlo</div>
+  <div class="grid">
+    <div class="cell" id="cell-left" data-panel="scheduleLeft">Extra</div>
+    <div class="cell" id="cell-schedule" data-panel="schedule">Cronograma</div>
+    <div class="cell" id="cell-timer" data-panel="timer">Tiempo</div>
+    <div class="cell" id="cell-calendar" data-panel="calendar">Calendario</div>
+  </div>
+
+  <script>
+    function paint(hidden) {
+      document.querySelectorAll('.cell').forEach(cell => {
+        cell.classList.toggle('hidden', !!(hidden && hidden[cell.dataset.panel]));
+      });
+    }
+    document.querySelectorAll('.cell').forEach(cell => {
+      cell.addEventListener('click', async () => {
+        try {
+          await window.api.togglePanelHidden(cell.dataset.panel);
+        } finally {
+          // Siempre se vuelve a pedir el estado real (en vez de confiar
+          // únicamente en lo que devolvió el toggle) para que el mapa
+          // nunca se desincronice del estado real de las ventanas.
+          const hidden = await window.api.getHiddenPanels();
+          paint(hidden);
+        }
+      });
+    });
+    window.api.onDataChanged('hidden-panels-changed', paint);
+    window.api.getHiddenPanels().then(paint).catch(() => {});
+  </script>
+</body>
+</html>

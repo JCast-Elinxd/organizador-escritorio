@@ -1,0 +1,716 @@
+:root {
+  --panel-opaque: #1B1B1F;
+  --panel-translucent: rgba(26, 26, 30, 0.58);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #EDEDEF;
+  --text-dim: #9A9AA4;
+  --urgente: #B23A3A;
+  --recurrente: #2E8B57;
+  --pendiente: #B8860B;
+  --alerta: #FF4438;
+  --rojo-grisaceo: #9C6B6B;
+  --accent: #5B8DEF;
+
+  --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+/* Mantiene los controles nativos y sus menús dentro del tema oscuro de la
+   aplicación, incluido el desplegable de opciones de los selectores. */
+html, body, input, select, textarea, button {
+  color-scheme: dark;
+}
+
+select,
+select option,
+select optgroup {
+  background-color: #2B2B31;
+  color: var(--text);
+}
+select option:checked,
+select option:hover {
+  background-color: #3A3A43;
+  color: #FFFFFF;
+}
+
+input,
+select,
+textarea {
+  color: var(--text);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent center / cover no-repeat;
+}
+
+/* Sin borde exterior: cada panel ahora es su propia ventana real del
+   sistema operativo (ver main.js) — un marco gris alrededor de CADA una
+   se vería como cuadros sueltos en vez de una sola app cohesionada. El
+   único "marco" que puede aparecer es el de la ventanita de edición de
+   zona (zone-editor.html), que es un archivo aparte. */
+body {
+  box-sizing: border-box;
+}
+
+/* ---------- Layout: cada ventana muestra SOLO su propia pieza ---------- */
+/* Antes todo vivía en una sola ventana y cada pieza se posicionaba con
+   top/left/width/height en % calculados en el renderer. Ahora quien
+   calcula el tamaño/posición es el proceso principal (son ventanas
+   reales, con setBounds) — acá solo hace falta que la pieza que le
+   corresponde a ESTA ventana (ver body[data-panel], asignado al cargar
+   según ?panel=... en la URL) llene toda la ventana, y que el resto de
+   piezas (que igual están en el mismo index.html, para reusar código) no
+   se vean ni ocupen espacio. */
+.app-grid {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+.panel {
+  display: none; /* por defecto, ninguna pieza se ve en esta ventana */
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+body[data-panel="schedule-left"] #panel-schedule-left,
+body[data-panel="schedule"] #panel-schedule,
+body[data-panel="timer"] #panel-timer,
+body[data-panel="calendar"] #panel-toolbar,
+body[data-panel="calendar"] #panel-calendar {
+  display: flex;
+}
+/* La ventana "calendar" en realidad contiene DOS piezas apiladas
+   (el mini-panel de controles arriba, el calendario abajo) porque
+   siempre van pegadas y nunca hace falta que se superpongan entre sí —
+   por eso comparten una sola ventana real en vez de necesitar dos. */
+body[data-panel="calendar"] #panel-toolbar { top: 0; height: 40px; }
+body[data-panel="calendar"] #panel-calendar { top: 40px; height: calc(100% - 40px); }
+
+/* ---------- Panel base: opaco por defecto ---------- */
+.panel {
+  background: var(--panel-opaque);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  overflow: hidden;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+}
+body.translucent .panel {
+  background: var(--panel-translucent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ---------- Mini-panel de controles: pegado justo arriba del calendario ---------- */
+.toolbar-panel {
+  flex-direction: row !important;
+  align-items: center;
+  justify-content: center;
+  gap: var(--toolbar-gap, 6px);
+  padding: var(--toolbar-padding, 6px 8px);
+}
+.toolbar-panel button {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+  width: var(--toolbar-button-width, 26px);
+  height: var(--toolbar-button-height, 24px);
+  font-size: var(--toolbar-button-font, 12px);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.toolbar-panel button:hover { color: var(--text); border-color: var(--text-dim); }
+.toolbar-panel button.active { color: var(--accent); border-color: var(--accent); }
+.toolbar-panel button.has-error { color: var(--urgente); border-color: var(--urgente); animation: pulse 1.8s ease-in-out infinite; }
+
+/* ---------- Cronograma: híbrido lista/columnas + tamaño dinámico ---------- */
+/* El modo (lista vs columnas por tipo) y el tamaño de las tarjetas
+   (grande vs compacto) los decide el ResizeObserver en renderer.js según
+   el ancho/alto disponible y la cantidad de tareas. */
+.schedule-list {
+  flex: 1;
+  min-height: 0;
+}
+/* Modo lista (angosto o una sola categoría restante): el scroll y el
+   tamaño de fuente son los de este único contenedor. */
+.schedule-list.list-mode {
+  display: flex; flex-direction: column; gap: 8px;
+  overflow-y: auto; padding-right: 4px;
+}
+/* Modo columnas: el contenedor grid en sí NO scrollea — cada columna
+   tiene su PROPIO scroll (overflow-y en .schedule-column), así una
+   columna llena no empuja ni afecta a las demás. */
+/* El número de columnas se fija por JS (inline style, según cuántas
+   categorías-columna + OTROS hay que mostrar) para que NUNCA reacomode
+   una columna debajo de otra por falta de espacio — eso generaba el bug
+   de ver, p. ej., "Recurrente" como si fuera parte de la columna
+   "Urgente". Aquí solo se define el layout base. */
+.schedule-list.column-mode {
+  display: grid;
+  gap: 10px;
+  align-items: stretch;
+  height: 100%;
+  overflow: hidden;
+}
+.schedule-list::-webkit-scrollbar, .schedule-column::-webkit-scrollbar { width: 6px; }
+.schedule-list::-webkit-scrollbar-thumb, .schedule-column::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+
+.schedule-column {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0;
+  overflow-y: auto; padding: 8px; box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.025);
+}
+.schedule-column-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-dim); margin-bottom: 2px;
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+}
+.schedule-column-title .col-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+/* Estética tipo "marco de color": borde de color por tipo, fondo
+   semitransparente (no relleno sólido), y la hora/fecha en su propio
+   tono distinto — como en la referencia visual. */
+.task-card {
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1.5px solid;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+/* El color de marco/fondo ya no depende de una clase fija por tipo:
+   viene inline desde la categoría (ahora dinámica/personalizable). */
+.task-card .t-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-shrink: 0; }
+.task-card .t-title { font-weight: 700; font-size: 1.05em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-card .t-del { opacity: 0.6; cursor: pointer; font-size: 12px; }
+.task-card .t-del:hover { opacity: 1; }
+.task-card .t-meta { display: flex; justify-content: flex-start; align-items: center; font-size: 0.82em; gap: 6px; }
+.task-card .t-when {
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Tamaño compacto: se aplica POR COLUMNA (o al .schedule-list en modo
+   lista), de forma independiente entre columnas — cada una decide su
+   propio tamaño según si sus propias tarjetas caben cómodas o no. */
+.schedule-list.list-mode.compact .task-card,
+.schedule-column.compact .task-card { padding: 6px 9px; gap: 3px; font-size: 11px; }
+.schedule-list.list-mode.compact .t-title,
+.schedule-column.compact .t-title { font-size: 1em; }
+.schedule-list.list-mode.compact .t-meta,
+.schedule-column.compact .t-meta { font-size: 0.85em; }
+
+.add-task-btn {
+  margin-bottom: 8px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  border-radius: 8px;
+  padding: 8px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.add-task-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+/* ---------- Temporizador ---------- */
+#panel-timer { flex-direction: row; gap: 16px; }
+.timer-main {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.timer-top-row { display: flex; align-items: center; gap: 12px; flex-shrink: 0; width: max-content; }
+
+.countdown-box {
+  background: rgba(255, 68, 56, 0.10);
+  border: 1px solid rgba(255, 68, 56, 0.45);
+  border-radius: 10px;
+  padding: 8px 16px;
+  box-shadow: 0 0 20px rgba(255, 68, 56, 0.28);
+}
+.countdown {
+  font-family: var(--font-mono);
+  font-size: 42px; font-weight: 800; line-height: 1;
+  color: var(--alerta);
+  text-shadow: 0 0 16px rgba(255, 68, 56, 0.75);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
+
+.clock-box {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 12px;
+}
+.clock { font-family: var(--font-mono); font-size: 14px; font-weight: 600; letter-spacing: 0.5px; color: var(--text); line-height: 1; }
+
+.next-activity-label { display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; flex-shrink: 0; }
+.next-name { font-weight: 700; font-size: 15px; color: var(--text); }
+.next-time { font-size: 12px; color: var(--text-dim); }
+
+.pending-list {
+  width: 100%;
+  flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+.pending-list::-webkit-scrollbar { width: 6px; }
+.pending-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+.pending-item { display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
+.pending-item .p-task { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.pending-item .p-time { font-family: var(--font-mono); flex-shrink: 0; }
+.pending-item .p-remaining { font-family: var(--font-mono); flex-shrink: 0; color: var(--rojo-grisaceo); }
+.empty-hint { color: var(--text-dim); font-size: 12px; font-style: italic; }
+
+/* Mini-panel de Pomodoro: ahora crece para ocupar el espacio sobrante del
+   panel (antes tenía 108px fijos), con controles más grandes y una vista
+   previa (en gris) de los siguientes segmentos del ciclo. */
+.pomodoro-mini {
+  flex: 1 1 auto;
+  min-width: 0;
+  border-left: 1px solid var(--border);
+  padding-left: 16px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+/* Menú desplegable propio (reemplaza <select> nativo): los <select> de
+   HTML no reciben clics de forma confiable en esta ventana transparente
+   con click-through de Electron — su popup nativo queda fuera del DOM y
+   el truco de ignorar/forwardear el mouse lo deja "atravesable". Esto es
+   un <div> normal dentro de la propia ventana, así que sí funciona. */
+.custom-dropdown { position: relative; flex-shrink: 0; }
+.dropdown-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dropdown-toggle:hover { color: var(--text); border-color: var(--text-dim); }
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  bottom: 100%; left: 0;
+  margin-bottom: 4px;
+  min-width: 140px;
+  background: var(--panel-opaque);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.4);
+  z-index: 20;
+  overflow: hidden;
+}
+.dropdown-menu.open { display: block; }
+.dropdown-option {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dropdown-option:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.dropdown-option.selected { color: var(--text); font-weight: 600; }
+
+.pomo-current { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex-shrink: 0; }
+.pomo-mode { font-size: 11px; letter-spacing: 0.08em; color: var(--recurrente); font-weight: 700; }
+.pomo-mode.break { color: var(--accent); }
+.pomo-time { font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: var(--text); line-height: 1; }
+
+/* Vista previa del resto del ciclo: siempre en gris, para que no compita
+   visualmente con el cronómetro activo. */
+.pomo-cycle-preview { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+.pomo-cycle-item { display: flex; flex-direction: column; align-items: center; gap: 2px; opacity: 0.55; }
+.pomo-cycle-item .pcy-name { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); white-space: nowrap; }
+.pomo-cycle-item .pcy-time { font-family: var(--font-mono); font-size: 15px; color: var(--text-dim); }
+
+/* Los controles son los que "absorben" el espacio sobrante del panel. */
+.pomo-controls { display: flex; gap: 10px; flex: 1 1 auto; min-width: 140px; }
+.pomo-controls button {
+  flex: 1 1 auto;
+  background: none; border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-dim); cursor: pointer; font-size: 20px; padding: 10px 14px;
+}
+.pomo-controls button:hover { color: var(--text); border-color: var(--text-dim); }
+.pomo-stretchly {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-dim); cursor: pointer; font-size: 11px; padding: 6px 10px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.pomo-stretchly:hover { color: var(--text); }
+.pomo-stretchly.linked { color: var(--recurrente); border-color: var(--recurrente); }
+.pomo-config { background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); cursor: pointer; font-size: 16px; padding: 6px 10px; flex-shrink: 0; }
+.pomo-config:hover { color: var(--text); border-color: var(--text-dim); }
+.pomo-modal { width: min(560px, calc(100vw - 32px)); }
+.pomo-segments { display: flex; flex-direction: column; gap: 6px; overflow: visible; }
+.pomo-segment-row { display: grid; grid-template-columns: minmax(160px, 1fr) 58px auto auto 24px; gap: 7px; align-items: center; }
+.pomo-segment-row input { min-width: 0; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); border-radius: 5px; padding: 5px; font-size: 11px; }
+.pomo-segment-row label { display: flex; align-items: center; gap: 3px; color: var(--text-dim); font-size: 10px; white-space: nowrap; }
+.pomo-segment-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; }
+.pomo-segment-remove:hover { color: var(--urgente); }
+.pomo-add-segment { align-self: flex-start; padding: 5px 8px !important; }
+
+/* Ancho angosto: el mini-pomodoro baja debajo del reloj/cuenta regresiva
+   en vez de quedar apretado al lado. Ancho muy angosto: además se
+   reduce la tipografía para que todo siga cabiendo sin desbordar. */
+#panel-timer.timer-narrow { flex-direction: column; }
+#panel-timer.timer-narrow .pomodoro-mini {
+  width: 100%; border-left: none; border-top: 1px solid var(--border);
+  padding-left: 0; padding-top: 10px; justify-content: center;
+}
+#panel-timer.timer-narrow .timer-main { width: 100%; max-width: none; }
+#panel-timer.timer-narrow .timer-top-row { width: auto; }
+#panel-timer.timer-narrow .timer-top-row { flex-wrap: wrap; }
+#panel-timer.timer-narrow .pomo-cycle-preview { display: none; } /* sin espacio para la vista previa */
+
+#panel-timer.timer-tiny .countdown { font-size: 28px; }
+#panel-timer.timer-tiny .clock { font-size: 13px; }
+#panel-timer.timer-tiny .next-name { font-size: 12px; }
+#panel-timer.timer-tiny .pomo-time { font-size: 17px; }
+#panel-timer.timer-tiny .pomo-controls button { font-size: 14px; padding: 6px 8px; }
+#panel-timer.timer-tiny .pomo-stretchly { font-size: 9px; padding: 2px 4px; }
+#panel-timer.timer-tiny .countdown-box, #panel-timer.timer-tiny .clock-box { padding: 4px 8px; }
+
+/* ---------- Calendario: adaptable a los límites del panel ---------- */
+/* El tamaño (--cal-cell/--cal-font) y la visibilidad de cada pieza se
+   calculan en renderer.js con un ResizeObserver sobre #cal-body (más
+   confiable que "container queries" de CSS, que dependen de containment
+   estricto y no reaccionaban bien dentro de este layout con flexbox). */
+.cal-body {
+  --cal-cell: 30px;
+  --cal-font: 11px;
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.cal-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* centra header+grid+legend verticalmente cuando el panel tiene más alto del que hace falta */
+  flex: 0 0 calc(var(--cal-cell) * 7 + 18px);
+  width: calc(var(--cal-cell) * 7 + 18px);
+  min-width: 0;
+  min-height: 0;
+}
+
+.cal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  width: calc(var(--cal-cell) * 7 + 18px);
+  margin-top: 0; margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.cal-header button { background: transparent; border: none; color: var(--text-dim); font-size: 14px; cursor: pointer; }
+.cal-header button:hover { color: var(--text); }
+.cal-header .month-label { font-weight: 600; font-size: calc(var(--cal-font) + 2px); text-transform: capitalize; }
+
+/* El grid en sí SIEMPRE tiene celdas de tamaño uniforme (--cal-cell); no
+   se estira: si sobra ancho de panel, ese espacio lo aprovecha la agenda
+   a la derecha, no el calendario. */
+.cal-grid-wrap { flex-shrink: 0; }
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, var(--cal-cell));
+  grid-auto-rows: var(--cal-cell);
+  gap: 3px;
+  font-size: var(--cal-font);
+  width: calc(var(--cal-cell) * 7 + 18px);
+}
+.cal-dow { text-align: center; color: var(--text-dim); padding-bottom: 4px; }
+.cal-day {
+  width: var(--cal-cell); height: var(--cal-cell);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 6px; background: rgba(255,255,255,0.03); position: relative;
+  font-size: var(--cal-font); cursor: pointer;
+}
+.cal-day.today { outline: 1px solid var(--accent); }
+.cal-day .dots { display: flex; gap: 2px; margin-top: 2px; }
+.cal-day .dot { width: 4px; height: 4px; border-radius: 50%; }
+.dot.sincronizado { background: #9B6BD6; }
+
+.cal-legend {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+.cal-legend span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: normal; }
+.cal-legend .legend-hidden { display: none; }
+.cal-legend .dot { width: 6px; height: 6px; border-radius: 50%; }
+.legend-sync { display: none; }
+.legend-sync.visible { display: inline-flex; }
+
+/* Clases que activa el ResizeObserver en renderer.js, en el orden
+   pedido según vaya faltando ALTURA: 1) letra ya se achica vía --cal-cell/
+   --cal-font (calculado en JS), 2) esconde convenciones, 3) esconde días
+   de la semana, 4) esconde selector de mes. Para ANCHO: la agenda se
+   esconde si no hay espacio real. */
+.cal-legend { overflow: hidden; }
+.cal-body.hide-dow .cal-dow { display: none; }
+.cal-body.hide-header .cal-header { display: none; }
+.cal-body.hide-agenda .cal-agenda { display: none; }
+
+/* ---------- Agenda del calendario: A LA DERECHA del calendario,
+   aprovechando el ancho sobrante. Solo eventos de calendario, nunca
+   tareas de otros paneles. ---------- */
+.cal-agenda {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.24) transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 12px;
+}
+.cal-agenda::-webkit-scrollbar { width: 6px; }
+.cal-agenda::-webkit-scrollbar-track { background: transparent; }
+.cal-agenda::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.22);
+  border-radius: 999px;
+}
+.cal-agenda::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.38); }
+.agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  min-width: 0;
+}
+.agenda-item .agenda-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.agenda-item .agenda-date { font-family: var(--font-mono); color: var(--text-dim); font-size: 11px; flex-shrink: 0; width: 42px; }
+.agenda-item .agenda-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: var(--agenda-title-font, 12px);
+}
+.cal-body.agenda-stacked .agenda-item {
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr);
+  column-gap: 7px;
+  row-gap: 1px;
+  align-items: start;
+}
+.cal-body.agenda-stacked .agenda-item .agenda-dot {
+  grid-row: 1 / span 2;
+  margin-top: 4px;
+}
+.cal-body.agenda-stacked .agenda-item .agenda-date {
+  width: auto;
+}
+.cal-body.agenda-stacked .agenda-item .agenda-title {
+  grid-column: 2;
+}
+
+
+/* ---------- Modales ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  display: none; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: #232328; border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px; width: calc(100% - 32px); max-height: calc(100% - 32px);
+  display: flex; flex-direction: column; gap: 8px;
+  overflow-y: auto;
+}
+.modal h3 {
+  margin: -18px -18px 4px -18px; padding: 10px 18px; font-size: 14px;
+  -webkit-app-region: drag; /* la ventana entera se agranda solo para este modal (ver main.js) — arrastrar el título mueve esa ventana */
+  cursor: move;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.modal input, .modal select {
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 8px; font-family: var(--font-ui); font-size: 12px;
+}
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.modal button { border: none; border-radius: 6px; padding: 7px 12px; font-size: 12px; cursor: pointer; font-family: var(--font-ui); }
+.modal .btn-cancel { background: transparent; color: var(--text-dim); }
+.modal .btn-save { background: var(--accent); color: #fff; }
+.modal .field-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: -4px; }
+.modal .field-error { font-size: 11px; color: var(--urgente); }
+.modal .field-error:empty { display: none; }
+.modal .field-hint { font-size: 10px; color: var(--text-dim); line-height: 1.4; margin: 0; }
+
+.day-items { display: flex; flex-direction: column; gap: 4px; max-height: 140px; overflow-y: auto; }
+.day-items:empty { display: none; }
+.day-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  background: rgba(255,255,255,0.05); border-radius: 6px; padding: 5px 8px; font-size: 12px;
+}
+.day-item .day-item-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.day-item .day-item-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-item .day-item-del { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 12px; flex-shrink: 0; }
+.day-item .day-item-del:hover { color: var(--urgente); }
+
+/* Caja de recurrencia: se distingue visualmente del resto del formulario */
+.recurrence-box {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.weekday-picker { display: flex; gap: 4px; justify-content: space-between; }
+.weekday-picker label {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: 10px; color: var(--text-dim); cursor: pointer;
+}
+.weekday-picker input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+/* ---------- Drawer de calendarios: pegado al borde DERECHO, no centrado ---------- */
+.calendar-drawer {
+  position: fixed;
+  top: 0; right: -420px;
+  width: 400px; height: 100%;
+  background: #1B1B1F;
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0,0,0,0.4);
+  z-index: 200; /* por encima de todos los paneles y de la zona de video */
+  display: flex;
+  flex-direction: column;
+  transition: right 0.18s ease-out;
+}
+.calendar-drawer.open { right: 0; }
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  -webkit-app-region: drag; /* arrastra la ventana dedicada del drawer (ver main.js) */
+  cursor: move;
+}
+.drawer-header h3 { margin: 0; font-size: 15px; }
+.drawer-header button {
+  background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 14px;
+  -webkit-app-region: no-drag;
+}
+.drawer-header button:hover { color: var(--text); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+
+.provider-block { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.provider-block:last-of-type { border-bottom: none; }
+.provider-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.provider-name { font-size: 13px; font-weight: 600; }
+.provider-accounts { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+.account-chip {
+  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; font-size: 12px;
+}
+.account-chip .account-info { display: flex; flex-direction: column; }
+.account-chip .account-label { font-weight: 600; }
+.account-chip .account-email { color: var(--text-dim); font-size: 10px; }
+.account-chip .account-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 13px; }
+.account-chip .account-remove:hover { color: var(--urgente); }
+.account-chip.needs-reconnect { border-color: var(--urgente); }
+.reconnect-badge { color: var(--urgente); font-size: 10px; font-weight: 700; margin-left: 6px; }
+
+.provider-fields { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.link-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 2px; }
+.btn-link {
+  background: rgba(91,141,239,0.12); border: 1px solid rgba(91,141,239,0.35); color: var(--accent);
+  border-radius: 6px; padding: 6px 8px; font-size: 11px; cursor: pointer; text-align: left; font-family: var(--font-ui);
+}
+.btn-link:hover { background: rgba(91,141,239,0.2); }
+.field-hint { font-size: 10px; color: var(--text-dim); margin: 2px 0 0 0; line-height: 1.4; }
+.field-error { font-size: 11px; color: var(--urgente); min-height: 0; }
+.field-error:empty { display: none; }
+
+.provider-fields input, .provider-fields select {
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 8px; font-family: var(--font-ui); font-size: 12px;
+}
+.provider-row .btn-save, .account-chip { font-family: var(--font-ui); }
+.provider-row button.btn-save {
+  background: var(--accent); color: #fff; border: none; border-radius: 6px;
+  padding: 6px 10px; font-size: 11px; cursor: pointer;
+}
+
+/* ---------- Lista de convenciones (categorías) personalizables ---------- */
+.category-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.category-row {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px;
+}
+.category-row[draggable="true"] { cursor: grab; }
+.category-row.dragging { opacity: 0.45; }
+.category-row.drag-over { border-color: var(--accent); }
+.category-drag-handle { color: var(--text-dim); font-size: 14px; line-height: 1; user-select: none; cursor: grab; }
+.category-row input[type="color"] {
+  width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px;
+  background: none; cursor: pointer; flex-shrink: 0;
+}
+.category-row input[type="text"] {
+  flex: 1; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text);
+  border-radius: 5px; padding: 5px 7px; font-family: var(--font-ui); font-size: 12px; min-width: 0;
+}
+.category-row .category-remove { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 13px; flex-shrink: 0; }
+.category-row .category-remove:hover { color: var(--urgente); }
+.category-row.protected { opacity: 0.8; }
+.category-row.protected input[disabled] { cursor: not-allowed; opacity: 0.7; }
+.category-row .protected-lock { flex-shrink: 0; font-size: 12px; opacity: 0.7; }
+.category-column-toggle { display: flex; align-items: center; gap: 3px; font-size: 12px; flex-shrink: 0; cursor: pointer; user-select: none; }
+.category-column-toggle input[type="checkbox"] { cursor: pointer; }
+.category-row.protected .category-column-toggle { opacity: 0.5; cursor: not-allowed; }
